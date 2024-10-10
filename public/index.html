@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<body>
+  <h1>I can make a website</h1>
+  <video id="localVideo" autoplay muted></video>
+  <video id="remoteVideo" autoplay></video>
+
+  <script>
+    const localVideo = document.getElementById('localVideo');
+    const remoteVideo = document.getElementById('remoteVideo');
+    let localStream, pc;
+
+    const ws = new WebSocket('wss://your-websocket-server-url'); // Using wss for secure connection (using github duh)
+
+    // WebSocket signaling???????? -- Copy and pasted from the internet
+    ws.onmessage = (message) => {
+      const data = JSON.parse(message.data);
+
+      if (data.type === 'offer') {
+        pc.setRemoteDescription(new RTCSessionDescription(data));
+        pc.createAnswer().then((answer) => {
+          pc.setLocalDescription(answer);
+          ws.send(JSON.stringify(answer));
+        });
+      } else if (data.type === 'answer') {
+        pc.setRemoteDescription(new RTCSessionDescription(data));
+      } else if (data.type === 'candidate') {
+        pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+      }
+    };
+
+    // Get cameras on pc
+    navigator.mediaDevices.enumerateDevices()
+      .then(devices => {
+        const videoDevices = devices.filter(device => device.kind === 'videoinput');
+        console.log('Cameras');
+        
+        videoDevices.forEach((device, index) => {
+          console.log(`${index}: ${device.label || `Camera ${index + 1}`} (ID: ${device.deviceId})`);
+        });
+
+        //index 2 seems to be nvidia broadcast and index 1 is droidcam source 3
+        const selectedDeviceId = videoDevices[2].deviceId;
+
+        startVideo(selectedDeviceId);
+      });
+
+   // start the camera stream
+    function startVideo(deviceId) {
+      const constraints = {
+        video: {
+          deviceId: deviceId ? { exact: deviceId } : undefined
+        },
+        audio: false
+      };
+
+      navigator.mediaDevices.getUserMedia(constraints)
+        .then((stream) => {
+          localVideo.srcObject = stream;
+          localStream = stream;
+
+          const configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+          pc = new RTCPeerConnection(configuration);
+
+          pc.onicecandidate = (event) => {
+            if (event.candidate) {
+              ws.send(JSON.stringify({ type: 'candidate', candidate: event.candidate }));
+            }
+          };
+
+          pc.ontrack = (event) => {
+            remoteVideo.srcObject = event.streams[0];
+          };
+
+          pc.addStream(localStream);
+        });
+    }
+
+    // Automatically create offer after getting camera stream
+    ws.onopen = () => console.log('Websocket Connection Open -- yippee');
+  </script>
+</body>
+</html>
